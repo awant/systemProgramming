@@ -271,8 +271,8 @@ VOID WINAPI SvcCtrlHandler(DWORD dwCtrl)
 
 		SetEvent(ghSvcStopEvent);
 		ReportSvcStatus(gSvcStatus.dwCurrentState, NO_ERROR, 0);
-		/*closePipes();
-		closeClientSocket();*/
+		closePipes();
+		closeClientSocket();
 		return;
 
 	case SERVICE_CONTROL_INTERROGATE:

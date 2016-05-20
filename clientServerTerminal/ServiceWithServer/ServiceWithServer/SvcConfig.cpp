@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "svcconfig.h"
+#include "svccontrol.h"
 
 #pragma comment(lib, "advapi32.lib")
 
@@ -348,6 +349,9 @@ VOID __stdcall DoDeleteSvc()
 	SC_HANDLE schSCManager;
 	SC_HANDLE schService;
 	SERVICE_STATUS ssStatus;
+
+
+	DoStopSvc();
 
 	// Get a handle to the SCM database. 
 

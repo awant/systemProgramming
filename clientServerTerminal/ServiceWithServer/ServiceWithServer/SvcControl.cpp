@@ -488,12 +488,6 @@ VOID __stdcall DoStopSvc()
 	// If the service is running, dependencies must be stopped first.
 
 	StopDependentServices();
-	// Send a stop code to the service.
-	//
-	//
-	printf("close---\n");
-	closePipes();
-	closeClientSocket();
 
 	if (!ControlService(
 		schService,

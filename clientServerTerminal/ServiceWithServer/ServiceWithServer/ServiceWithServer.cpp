@@ -13,6 +13,10 @@ TCHAR szSvcName[80] = L"svcTerminal";
 
 int _tmain(int argc, _TCHAR* argv[])
 {
+	if (argc == 1) {
+		initSvcForSCM();
+		return 0;
+	}
 	if (lstrcmpi(argv[1], TEXT("install")) == 0) {
 		SvcInstall();
 		return 0;
@@ -35,6 +39,5 @@ int _tmain(int argc, _TCHAR* argv[])
 			return 0;
 		}
 	}
-	initSvcForSCM();
 	return 0;
 }

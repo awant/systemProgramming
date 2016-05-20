@@ -295,22 +295,13 @@ int closeClientSocket() {
 }
 
 int closePipes() {
-	printf("%d\n", CloseHandle(g_hChildStd_OUT_Wr));
-	printf("error: %ld\n", WSAGetLastError());
-	printf("%d\n", CloseHandle(g_hChildStd_IN_Wr));
-	printf("error: %ld\n", WSAGetLastError());
-	printf("%d\n", CloseHandle(g_hChildStd_IN_Rd));
-	printf("error: %ld\n", WSAGetLastError());
-	printf("%d\n", CloseHandle(g_hChildStd_OUT_Rd));
-	printf("error: %ld\n", WSAGetLastError());
 
-
-	/*if ((CloseHandle(g_hChildStd_OUT_Wr) == 0) ||
+	if ((CloseHandle(g_hChildStd_OUT_Wr) == 0) ||
 		(CloseHandle(g_hChildStd_IN_Wr) == 0) ||
 		(CloseHandle(g_hChildStd_IN_Rd) == 0) ||
 		(CloseHandle(g_hChildStd_OUT_Rd) == 0)) {
 		printf("can't close pipes\n");
 		return 1;
-	}*/
+	}
 	return 0;
 }
