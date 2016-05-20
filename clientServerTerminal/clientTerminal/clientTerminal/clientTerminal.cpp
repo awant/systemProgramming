@@ -11,6 +11,7 @@
 #define DEFAULT_BUFLEN 4096
 #define IP_PORT_LEN 16
 #define EXIT_WORD "exit"
+#define HELP_ARG "--help"
 
 #define DEFAULT_IP "127.0.0.1"
 #define DEFAULT_PORT "27015"
@@ -19,6 +20,7 @@ int connectToServer(SOCKET* ConnectSocket, PCSTR ip, PCSTR port);
 DWORD WINAPI listenAndPrintThreadLoop(LPVOID lpParam);
 int readStdinSendToServerLoop(SOCKET ConnectSocket);
 int getInitMsgFromServer(SOCKET ConnectSocket);
+void printUsage();
 
 
 int main(int argc, char* argv[])
@@ -28,6 +30,11 @@ int main(int argc, char* argv[])
 	char* ip;
 	char* port;
 	// "169.254.217.250";
+
+	if (strcmp(argv[1], HELP_ARG) == 0) {
+		printUsage();
+		return 0;
+	}
 
 	if (argc == 2) {
 		char *p = strchr(argv[1], ':');
@@ -230,4 +237,10 @@ int getInitMsgFromServer(SOCKET ConnectSocket)
 	else
 		printf("recv failed with error: %d\n", WSAGetLastError());
 	return iResult;
+}
+
+void printUsage()
+{
+	printf("usage: clientTerminal <ip>:<port>\n");
+	printf("Connect to server. local ip with default port by default.\n");
 }
