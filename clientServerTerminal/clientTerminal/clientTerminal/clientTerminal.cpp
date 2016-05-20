@@ -9,8 +9,11 @@
 
 #define BUFSIZE 4096
 #define DEFAULT_BUFLEN 4096
+#define IP_PORT_LEN 16
 #define EXIT_WORD "exit"
 
+#define DEFAULT_IP "127.0.0.1"
+#define DEFAULT_PORT "27015"
 
 int connectToServer(SOCKET* ConnectSocket, PCSTR ip, PCSTR port);
 DWORD WINAPI listenAndPrintThreadLoop(LPVOID lpParam);
@@ -18,31 +21,41 @@ int readStdinSendToServerLoop(SOCKET ConnectSocket);
 int getInitMsgFromServer(SOCKET ConnectSocket);
 
 
-int _tmain(int argc, char* argv[])
+int main(int argc, char* argv[])
 {
 	SOCKET ConnectSocket = INVALID_SOCKET;
 	int iResult;
-	PCSTR ip = "127.0.0.1";
-	PCSTR port = "27015";
+	char* ip;
+	char* port;
+	// "169.254.217.250";
 
 	if (argc == 2) {
 		char *p = strchr(argv[1], ':');
 		if ((p == NULL) || (p == argv[1]) || (p == (argv[1]+strlen(argv[1])))) {
 			return 1;
 		}
-		ip = (PSTR)malloc(sizeof(p - argv[1]));
-		memcpy((void*)ip, argv[1], p - argv[1]);
-		port = (PSTR)malloc(sizeof(argv[1] + strlen(argv[1]) - p));
-		//memcpy((void*)ip, argv[1], p - argv[1]);
-
+		ip = (char*)calloc(sizeof(char), IP_PORT_LEN);
+		port = (char*)calloc(sizeof(char), IP_PORT_LEN);
+		memcpy(ip, argv[1], p - argv[1]);
+		memcpy(port, p+1, argv[1] + strlen(argv[1]) - p-1);
+	}
+	else {
+		ip = DEFAULT_IP;
+		port = DEFAULT_PORT;
 	}
 
 	iResult = connectToServer(&ConnectSocket, ip, port);
+	if (iResult != 0) {
+		if (argc == 2) { free(ip); free(port); }
+		return 1;
+	}
 
 	// Should receive init cmd.exe output from server
-	getInitMsgFromServer(ConnectSocket);
+	iResult = getInitMsgFromServer(ConnectSocket);
 	if (iResult <= 0) {
-		return 0;
+		closesocket(ConnectSocket);
+		if (argc == 2) { free(ip); free(port); }
+		return 1;
 	}
 
 	// Create thread for listen socket
@@ -58,14 +71,16 @@ int _tmain(int argc, char* argv[])
 
 	// Simultaneously send data to server
 	iResult = readStdinSendToServerLoop(ConnectSocket);
-
-	// Close all properly
+	if (iResult <= 0) {
+		if (argc == 2) { free(ip); free(port); }
+		return 1;
+	}
 
 	// Kill thread
 	DWORD exitCode;
 	if (GetExitCodeThread(hThread, &exitCode) != 0) {
 		if (TerminateThread(hThread, exitCode) != 0) {
-			printf("close\n");
+			printf("terminate thread successfully\n");
 		}
 	}
 
@@ -75,13 +90,14 @@ int _tmain(int argc, char* argv[])
 		printf("shutdown failed with error: %d\n", WSAGetLastError());
 		closesocket(ConnectSocket);
 		WSACleanup();
+		if (argc == 2) { free(ip); free(port); }
 		return 1;
 	}
 
-	// cleanup
-	printf("socket closed\n");
 	WSACleanup();
+	if (argc == 2) { free(ip); free(port); }
 
+	printf("client closed successfully\n");
 	return 0;
 }
 
@@ -104,8 +120,6 @@ int connectToServer(SOCKET* ConnectSocket, PCSTR ip, PCSTR port)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 
-	// Resolve the server address and port
-	// localhost ip address 127.0.0.1
 	iResult = getaddrinfo(ip, port, &hints, &result);
 	if (iResult != 0) {
 		printf("getaddrinfo failed with error: %d\n", iResult);
@@ -141,7 +155,7 @@ int connectToServer(SOCKET* ConnectSocket, PCSTR ip, PCSTR port)
 		WSACleanup();
 		return 1;
 	}
-	return -1;
+	return 0;
 }
 
 DWORD WINAPI listenAndPrintThreadLoop(LPVOID lpParam)
@@ -158,9 +172,10 @@ DWORD WINAPI listenAndPrintThreadLoop(LPVOID lpParam)
 		if (iResult > 0) {
 			printf("%s", recvbuf);
 		}
-		else if (iResult == 0)
+		else if (iResult == 0) {
 			printf("Connection closed\n");
-		else {
+			break; 
+		} else {
 			printf("recv failed with error: %d\n", WSAGetLastError());
 			break;
 		}
@@ -196,6 +211,7 @@ int readStdinSendToServerLoop(SOCKET ConnectSocket)
 			break;
 		}
 	}
+	CloseHandle(hStdin);
 	return iResult;
 }
 
@@ -203,6 +219,7 @@ int getInitMsgFromServer(SOCKET ConnectSocket)
 {
 	char recvbuf[DEFAULT_BUFLEN];
 	int recvbuflen = DEFAULT_BUFLEN;
+	ZeroMemory(&recvbuf, DEFAULT_BUFLEN);
 
 	int iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
 	if (iResult > 0) {
