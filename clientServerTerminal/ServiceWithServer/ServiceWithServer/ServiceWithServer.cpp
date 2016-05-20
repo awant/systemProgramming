@@ -5,11 +5,15 @@
 #include "svccontrol.h"
 #include "svcconfig.h"
 
+#define HELP_ARG "--help"
+
 void __cdecl initSvcForSCM();
 VOID SvcInstall();
+void printUsage();
 
-TCHAR szCommand[10];
+TCHAR serverPort[10] = L"27015";
 TCHAR szSvcName[80] = L"svcTerminal";
+TCHAR szCommand[10];
 
 int _tmain(int argc, _TCHAR* argv[])
 {
@@ -17,7 +21,16 @@ int _tmain(int argc, _TCHAR* argv[])
 		initSvcForSCM();
 		return 0;
 	}
+	if (lstrcmpi(argv[1], TEXT(HELP_ARG)) == 0) {
+		printUsage();
+		return 0;
+	}
+
 	if (lstrcmpi(argv[1], TEXT("install")) == 0) {
+		if (argc == 3) {
+			ZeroMemory(serverPort, 10);
+			StringCchCopy(serverPort, 10, argv[2]);
+		}
 		SvcInstall();
 		return 0;
 	}
@@ -40,4 +53,15 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 	}
 	return 0;
+}
+
+void printUsage()
+{
+	printf("usage: ServiceWithServer [COMMAND]\n");
+	printf("Run without parameters: register service\n");
+	printf("COMMAND:\n");
+	printf("  install <port>        install service with port, default = 27015\n");
+	printf("  start                 start service\n");
+	printf("  stop                  stop service\n");
+	printf("  delete                delete service\n");
 }

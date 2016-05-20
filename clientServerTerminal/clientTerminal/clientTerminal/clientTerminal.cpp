@@ -31,12 +31,12 @@ int main(int argc, char* argv[])
 	char* port;
 	// "169.254.217.250";
 
-	if (strcmp(argv[1], HELP_ARG) == 0) {
-		printUsage();
-		return 0;
-	}
-
 	if (argc == 2) {
+		if (strcmp(argv[1], HELP_ARG) == 0) {
+			printUsage();
+			return 0;
+		}
+
 		char *p = strchr(argv[1], ':');
 		if ((p == NULL) || (p == argv[1]) || (p == (argv[1]+strlen(argv[1])))) {
 			return 1;
@@ -206,7 +206,7 @@ int readStdinSendToServerLoop(SOCKET ConnectSocket)
 		bSuccess = ReadFile(hStdin, chBuf, BUFSIZE, &dwRead, NULL);
 		if (strncmp(chBuf, EXIT_WORD, strlen(EXIT_WORD)) == 0) {
 			printf("goodbye...\n");
-			iResult = 0;
+			iResult = 1;
 			break;
 		}
 		iResult = send(ConnectSocket, chBuf, (int)strlen(chBuf), 0);
