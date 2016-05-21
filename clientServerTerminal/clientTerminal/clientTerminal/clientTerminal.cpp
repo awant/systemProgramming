@@ -15,6 +15,8 @@
 
 #define DEFAULT_IP "127.0.0.1"
 #define DEFAULT_PORT "27015"
+HANDLE hStdin;
+bool isConnectionWithServerLost;
 
 int connectToServer(SOCKET* ConnectSocket, PCSTR ip, PCSTR port);
 DWORD WINAPI listenAndPrintThreadLoop(LPVOID lpParam);
@@ -29,6 +31,8 @@ int main(int argc, char* argv[])
 	int iResult;
 	char* ip;
 	char* port;
+	HANDLE hStdin;
+	isConnectionWithServerLost = false;
 	// "169.254.217.250";
 
 	if (argc == 2) {
@@ -82,7 +86,6 @@ int main(int argc, char* argv[])
 		if (argc == 2) { free(ip); free(port); }
 		return 1;
 	}
-
 	// Kill thread
 	DWORD exitCode;
 	if (GetExitCodeThread(hThread, &exitCode) != 0) {
@@ -184,10 +187,15 @@ DWORD WINAPI listenAndPrintThreadLoop(LPVOID lpParam)
 			break; 
 		} else {
 			printf("recv failed with error: %d\n", WSAGetLastError());
+			isConnectionWithServerLost = true;
+			CancelIoEx(hStdin, NULL);
+			CloseHandle(hStdin);
+			hStdin = INVALID_HANDLE_VALUE;
 			break;
 		}
 	}
 	closesocket(*ConnectSocket);
+	*ConnectSocket = INVALID_SOCKET;
 	return 0;
 }
 
@@ -198,12 +206,16 @@ int readStdinSendToServerLoop(SOCKET ConnectSocket)
 	DWORD dwRead;
 	BOOL bSuccess;
 
-	HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+	hStdin = GetStdHandle(STD_INPUT_HANDLE);
 	if (hStdin == INVALID_HANDLE_VALUE) return -1;
-
 	for (;;) {
 		ZeroMemory(&chBuf, BUFSIZE);
 		bSuccess = ReadFile(hStdin, chBuf, BUFSIZE, &dwRead, NULL);
+		if (isConnectionWithServerLost) {
+			WSACleanup();
+			return -1;
+			break;
+		}
 		if (strncmp(chBuf, EXIT_WORD, strlen(EXIT_WORD)) == 0) {
 			printf("goodbye...\n");
 			iResult = 1;
@@ -212,10 +224,10 @@ int readStdinSendToServerLoop(SOCKET ConnectSocket)
 		iResult = send(ConnectSocket, chBuf, (int)strlen(chBuf), 0);
 		if (iResult == SOCKET_ERROR) {
 			printf("send failed with error: %d\n", WSAGetLastError());
-			closesocket(ConnectSocket);
+			if (ConnectSocket != INVALID_SOCKET)
+				closesocket(ConnectSocket);
 			WSACleanup();
-			iResult = -1;
-			break;
+			return -1;
 		}
 	}
 	CloseHandle(hStdin);

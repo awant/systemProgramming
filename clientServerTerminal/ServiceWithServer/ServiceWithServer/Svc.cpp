@@ -17,10 +17,9 @@ VOID WINAPI SvcMain(DWORD, LPTSTR *);
 VOID ReportSvcStatus(DWORD, DWORD, DWORD);
 VOID SvcInit(DWORD, LPTSTR *);
 VOID SvcReportEvent(LPTSTR);
-int closeClientSocket();
-int closePipes();
 
-int server();
+int runServerProcess();
+int closeServer();
 
 //
 // Purpose: 
@@ -154,7 +153,6 @@ VOID WINAPI SvcMain(DWORD dwArgc, LPTSTR *lpszArgv)
 	ReportSvcStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
 
 	// Perform service-specific initialization and work.
-
 	SvcInit(dwArgc, lpszArgv);
 }
 
@@ -203,7 +201,7 @@ VOID SvcInit(DWORD dwArgc, LPTSTR *lpszArgv)
 	{
 		// Check whether to stop the service.
 		// WaitForSingleObject(ghSvcStopEvent, INFINITE);
-		server();
+		runServerProcess();
 		dwWaitResult = WaitForSingleObject(ghSvcStopEvent, 0);
 	}
 	ReportSvcStatus(SERVICE_STOPPED, NO_ERROR, 0);
@@ -271,8 +269,7 @@ VOID WINAPI SvcCtrlHandler(DWORD dwCtrl)
 
 		SetEvent(ghSvcStopEvent);
 		ReportSvcStatus(gSvcStatus.dwCurrentState, NO_ERROR, 0);
-		closePipes();
-		closeClientSocket();
+		closeServer();
 		return;
 
 	case SERVICE_CONTROL_INTERROGATE:

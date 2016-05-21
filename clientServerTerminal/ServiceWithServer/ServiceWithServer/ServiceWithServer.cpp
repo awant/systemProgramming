@@ -10,8 +10,9 @@
 void __cdecl initSvcForSCM();
 VOID SvcInstall();
 void printUsage();
+void wchar_to_string(_TCHAR* widechar, char* str);
 
-TCHAR serverPort[10] = L"27015";
+char serverPort[10] = "27015";
 TCHAR szSvcName[80] = L"svcTerminal";
 TCHAR szCommand[10];
 
@@ -29,7 +30,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (lstrcmpi(argv[1], TEXT("install")) == 0) {
 		if (argc == 3) {
 			ZeroMemory(serverPort, 10);
-			StringCchCopy(serverPort, 10, argv[2]);
+			wchar_to_string(argv[2], serverPort);
 		}
 		SvcInstall();
 		return 0;
@@ -64,4 +65,15 @@ void printUsage()
 	printf("  start                 start service\n");
 	printf("  stop                  stop service\n");
 	printf("  delete                delete service\n");
+}
+
+void wchar_to_string(_TCHAR* widechar, char* str)
+{
+	size_t size = 0;
+	while (((char)widechar[size] != '\0')) {
+		size++;
+	}
+	size++;
+	size_t sizeRet = 0;
+	wcstombs_s(&sizeRet, str, 10, widechar, size);
 }

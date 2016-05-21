@@ -6,38 +6,96 @@
 
 #define BUFSIZE 5000
 #define DEFAULT_BUFLEN 5000
-#define DEFAULT_PORT "27015"
+
+extern char serverPort[10];
 
 HANDLE g_hChildStd_IN_Rd = NULL;
 HANDLE g_hChildStd_IN_Wr = NULL;
 HANDLE g_hChildStd_OUT_Rd = NULL;
 HANDLE g_hChildStd_OUT_Wr = NULL;
-HANDLE g_hInputFile = NULL;
+SOCKET ClientSocket = INVALID_SOCKET;
+SOCKET ListenSocket = INVALID_SOCKET;
 
-void CreateChildProcess(void);
-DWORD WINAPI listenAndSend(LPVOID lpParam);
-void WriteToPipe(char* buf);
-int ReadFromPipe(char* buf);
-void ErrorExit(PTSTR);
+bool isConnectionEstablished = false;
+bool isForceQuit = false;
+
+void writeToPipe(char* buf);
+int readFromPipe(char* buf);
 int closeClientSocket();
 int closePipes();
+int closeServer();
+void ErrorExit(PTSTR);
 
-SOCKET ClientSocket = INVALID_SOCKET;
+int acceptClientSocket();
+void createChildProcess();
+DWORD WINAPI readPipeAndSendToSocketThreadLoop(LPVOID lpParam);
+int listenSocketWriteToPipeLoop();
 
-int server()
+
+int runServerProcess()
+{
+	int iResult;
+	isForceQuit = false;
+
+	if (acceptClientSocket() != 0) {
+		return 1;
+	}
+	isConnectionEstablished = true;
+
+	SECURITY_ATTRIBUTES saAttr;
+	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+	saAttr.bInheritHandle = TRUE;
+	saAttr.lpSecurityDescriptor = NULL;
+
+	if (!CreatePipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr, 0))
+		ErrorExit(TEXT("StdoutRd CreatePipe"));
+	// Ensure the read handle to the pipe for STDOUT is not inherited.
+	if (!SetHandleInformation(g_hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0))
+		ErrorExit(TEXT("Stdout SetHandleInformation"));
+	// Create a pipe for the child process's STDIN. 
+	if (!CreatePipe(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr, 0))
+		ErrorExit(TEXT("Stdin CreatePipe"));
+	// Ensure the write handle to the pipe for STDIN is not inherited. 
+	if (!SetHandleInformation(g_hChildStd_IN_Wr, HANDLE_FLAG_INHERIT, 0))
+		ErrorExit(TEXT("Stdin SetHandleInformation"));
+
+	// Create the child process.
+	createChildProcess();
+
+	// Create thread for sending from pipe
+	HANDLE hThread;
+	DWORD dwThreadId;
+	hThread = CreateThread(
+		NULL,                                  // default security attributes
+		0,                                     // use default stack size  
+		readPipeAndSendToSocketThreadLoop,	   // thread function name
+		&ClientSocket,			               // argument to thread function 
+		0,                                     // use default creation flags 
+		&dwThreadId);
+
+	iResult = listenSocketWriteToPipeLoop();
+
+	// Terminate thread
+	DWORD exitCode;
+	if (GetExitCodeThread(hThread, &exitCode) != 0) {
+		if (TerminateThread(hThread, exitCode) != 0) {
+			printf("close thread successfully\n");
+		}
+	}
+
+	return 0;
+}
+
+
+int acceptClientSocket()
 {
 	WSADATA wsaData;
 	int iResult;
-	BOOL isFirstConnect = true;
-
-	SOCKET ListenSocket = INVALID_SOCKET;
 
 	struct addrinfo *result = NULL;
 	struct addrinfo hints;
 
 	int iSendResult;
-	char recvbuf[DEFAULT_BUFLEN];
-	int recvbuflen = DEFAULT_BUFLEN;
 
 	// Initialize Winsock
 	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -53,7 +111,7 @@ int server()
 	hints.ai_flags = AI_PASSIVE;
 
 	// Resolve the server address and port
-	iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
+	iResult = getaddrinfo(NULL, serverPort, &hints, &result);
 	if (iResult != 0) {
 		printf("getaddrinfo failed with error: %d\n", iResult);
 		WSACleanup();
@@ -81,8 +139,6 @@ int server()
 
 	freeaddrinfo(result);
 
-	// Limitless listen socket - if we close connection, then we can receive another client
-
 	iResult = listen(ListenSocket, SOMAXCONN);
 	if (iResult == SOCKET_ERROR) {
 		printf("listen failed with error: %d\n", WSAGetLastError());
@@ -94,112 +150,22 @@ int server()
 	ClientSocket = accept(ListenSocket, NULL, NULL);
 	if (ClientSocket == INVALID_SOCKET) {
 		printf("accept failed with error: %d\n", WSAGetLastError());
-		closesocket(ListenSocket);
-		WSACleanup();
+		if (!isForceQuit) {
+			closesocket(ListenSocket);
+			WSACleanup();
+		}
 		return 1;
 	}
 
 	// No longer need server socket
 	closesocket(ListenSocket);
-
-	SECURITY_ATTRIBUTES saAttr;
-	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-	saAttr.bInheritHandle = TRUE;
-	saAttr.lpSecurityDescriptor = NULL;
-
-	if (!CreatePipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr, 0))
-		ErrorExit(TEXT("StdoutRd CreatePipe"));
-	// Ensure the read handle to the pipe for STDOUT is not inherited.
-	if (!SetHandleInformation(g_hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0))
-		ErrorExit(TEXT("Stdout SetHandleInformation"));
-	// Create a pipe for the child process's STDIN. 
-	if (!CreatePipe(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr, 0))
-		ErrorExit(TEXT("Stdin CreatePipe"));
-	// Ensure the write handle to the pipe for STDIN is not inherited. 
-	if (!SetHandleInformation(g_hChildStd_IN_Wr, HANDLE_FLAG_INHERIT, 0))
-		ErrorExit(TEXT("Stdin SetHandleInformation"));
-
-	// Create the child process.
-	CreateChildProcess();
-
-	// Create thread for sending from pipe
-	HANDLE hThread;
-	DWORD dwThreadId;
-	hThread = CreateThread(
-		NULL,                   // default security attributes
-		0,                      // use default stack size  
-		listenAndSend,			// thread function name
-		&ClientSocket,			// argument to thread function 
-		0,                      // use default creation flags 
-		&dwThreadId);
-
-	// Receive until the peer shuts down the connection
-	do {
-		ZeroMemory(&recvbuf, recvbuflen);
-		iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-		if (iResult > 0) {
-			WriteToPipe(recvbuf);
-		}
-		else if (iResult == 0)
-			printf("Connection closing...\n");
-		else {
-			printf("recv failed with error: %d\n", WSAGetLastError());
-			closesocket(ClientSocket);
-			WSACleanup();
-			return 1;
-		}
-
-	} while (iResult > 0);
-	//closePipes();
-	closesocket(ListenSocket);
-
-	// Terminate thread
-	DWORD exitCode;
-	if (GetExitCodeThread(hThread, &exitCode) != 0) {
-		if (TerminateThread(hThread, exitCode) != 0) {
-			printf("close thread\n");
-		}
-	}
-
-	// shutdown the connection since we're done
-	iResult = shutdown(ClientSocket, SD_SEND);
-	if (iResult == SOCKET_ERROR) {
-		printf("shutdown failed with error: %d\n", WSAGetLastError());
-		closesocket(ClientSocket);
-		WSACleanup();
-		return 1;
-	}
-
-	// cleanup
-	//closeClientSocket();
-	WSACleanup();
 	return 0;
 }
 
-DWORD WINAPI listenAndSend(LPVOID lpParam)
-{
-	SOCKET* ClientSocket = (SOCKET*)lpParam;
-
-	char recvbuf[DEFAULT_BUFLEN];
-	int recvbuflen = DEFAULT_BUFLEN;
-	int bufSize = 0;
-	int iSendResult;
-	for (;;) {
-		ZeroMemory(&recvbuf, recvbuflen);
-		bufSize = ReadFromPipe(recvbuf);
-		iSendResult = send(*ClientSocket, recvbuf, bufSize, 0);
-		if (iSendResult == SOCKET_ERROR) {
-			printf("send failed with error: %d\n", WSAGetLastError());
-			closesocket(*ClientSocket);
-			WSACleanup();
-			return 1;
-		}
-	}
-}
-
-void CreateChildProcess()
+void createChildProcess()
 // Create a child process that uses the previously created pipes for STDIN and STDOUT.
 {
+	// TODO: make custom path: "cmd.exe /K \"cd /d F:\\ParallelsHW\\" for example
 	TCHAR szCmdline[] = TEXT("cmd.exe");
 	PROCESS_INFORMATION piProcInfo;
 	STARTUPINFO siStartInfo;
@@ -210,7 +176,6 @@ void CreateChildProcess()
 
 	// Set up members of the STARTUPINFO structure. 
 	// This structure specifies the STDIN and STDOUT handles for redirection.
-
 	ZeroMemory(&siStartInfo, sizeof(STARTUPINFO));
 	siStartInfo.cb = sizeof(STARTUPINFO);
 	siStartInfo.hStdError = g_hChildStd_OUT_Wr;
@@ -219,7 +184,6 @@ void CreateChildProcess()
 	siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
 
 	// Create the child process. 
-
 	bSuccess = CreateProcess(NULL,
 		szCmdline,     // command line 
 		NULL,          // process security attributes 
@@ -232,16 +196,81 @@ void CreateChildProcess()
 		&piProcInfo);  // receives PROCESS_INFORMATION 
 
 	// If an error occurs, exit the application.
-	if (!bSuccess)
+	if (!bSuccess) {
+		closesocket(ClientSocket);
+		WSACleanup();
 		ErrorExit(TEXT("CreateProcess"));
-	else
-	{
+	} else {
 		CloseHandle(piProcInfo.hProcess);
 		CloseHandle(piProcInfo.hThread);
 	}
 }
 
-void WriteToPipe(char* buf)
+DWORD WINAPI readPipeAndSendToSocketThreadLoop(LPVOID lpParam)
+{
+	SOCKET* ClientSocket = (SOCKET*)lpParam;
+
+	char recvbuf[DEFAULT_BUFLEN];
+	int recvbuflen = DEFAULT_BUFLEN;
+	int bufSize = 0;
+	int iSendResult;
+	for (;;) {
+		ZeroMemory(&recvbuf, recvbuflen);
+		bufSize = readFromPipe(recvbuf);
+		iSendResult = send(*ClientSocket, recvbuf, bufSize, 0);
+		if (iSendResult == SOCKET_ERROR) {
+			printf("send failed with error: %d\n", WSAGetLastError());
+			if (isForceQuit) {
+				return 0;
+			}
+			else {
+				closeClientSocket();
+				WSACleanup();
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+int listenSocketWriteToPipeLoop()
+{
+	int iResult = 0;
+	char recvbuf[DEFAULT_BUFLEN];
+	int recvbuflen = DEFAULT_BUFLEN;
+
+	// Receive until the peer shuts down the connection
+	do {
+		ZeroMemory(&recvbuf, recvbuflen);
+		iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
+		if (iResult > 0) {
+			writeToPipe(recvbuf);
+		}
+		else if (iResult == 0) {
+			printf("Connection closing...\n");
+			if (!isForceQuit) {
+				closesocket(ClientSocket);
+				WSACleanup();
+			}
+			break;
+		} else {
+			printf("recv failed with error: %d\n", WSAGetLastError());
+			if (!isForceQuit) {
+				closesocket(ClientSocket);
+				WSACleanup();
+			}
+			return 1;
+		}
+
+	} while (iResult > 0);
+
+	return 0;
+}
+
+
+// MARK: - helper functions
+
+void writeToPipe(char* buf)
 {
 	DWORD dwRead, dwWritten;
 	BOOL bSuccess = FALSE;
@@ -249,7 +278,7 @@ void WriteToPipe(char* buf)
 	bSuccess = WriteFile(g_hChildStd_IN_Wr, buf, dwRead, &dwWritten, NULL);
 }
 
-int ReadFromPipe(char* buf)
+int readFromPipe(char* buf)
 {
 	DWORD dwRead, dwWritten;
 	CHAR chBuf[BUFSIZE];
@@ -259,6 +288,43 @@ int ReadFromPipe(char* buf)
 	HANDLE hParentStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
 	ReadFile(g_hChildStd_OUT_Rd, buf, BUFSIZE, &dwRead, NULL);
 	return dwRead;
+}
+
+int closeClientSocket() {
+	printf("closeClientSocket\n");
+	int iResult = closesocket(ClientSocket);
+	ClientSocket = INVALID_SOCKET;
+	return iResult;
+}
+
+int closePipes() {
+	printf("closePipes\n");
+	if ((CloseHandle(g_hChildStd_OUT_Wr) == 0) ||
+		(CloseHandle(g_hChildStd_IN_Wr) == 0) ||
+		(CloseHandle(g_hChildStd_IN_Rd) == 0) ||
+		(CloseHandle(g_hChildStd_OUT_Rd) == 0)) {
+		printf("can't close pipes\n");
+		return 1;
+	}
+	return 0;
+}
+
+int closeServer() {
+	int iResult = 0;
+	isForceQuit = true;
+	if (!isConnectionEstablished) {
+		iResult = closesocket(ListenSocket);
+		ListenSocket = INVALID_SOCKET;
+		WSACleanup();
+		return iResult;
+	}
+	else {
+		closePipes();
+		closeClientSocket();
+		WSACleanup();
+		return 0;
+	}
+	return -1;
 }
 
 void ErrorExit(PTSTR lpszFunction)
@@ -288,20 +354,4 @@ void ErrorExit(PTSTR lpszFunction)
 	LocalFree(lpMsgBuf);
 	LocalFree(lpDisplayBuf);
 	ExitProcess(1);
-}
-
-int closeClientSocket() {
-	return closesocket(ClientSocket);
-}
-
-int closePipes() {
-
-	if ((CloseHandle(g_hChildStd_OUT_Wr) == 0) ||
-		(CloseHandle(g_hChildStd_IN_Wr) == 0) ||
-		(CloseHandle(g_hChildStd_IN_Rd) == 0) ||
-		(CloseHandle(g_hChildStd_OUT_Rd) == 0)) {
-		printf("can't close pipes\n");
-		return 1;
-	}
-	return 0;
 }

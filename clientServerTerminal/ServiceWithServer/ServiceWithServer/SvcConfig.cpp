@@ -9,7 +9,6 @@ extern TCHAR szSvcName[80];
 
 VOID __stdcall DisplayUsage(void);
 
-
 //
 // Purpose: 
 //   Retrieves and displays the current service configuration.
@@ -348,10 +347,8 @@ VOID __stdcall DoDeleteSvc()
 {
 	SC_HANDLE schSCManager;
 	SC_HANDLE schService;
-	SERVICE_STATUS ssStatus;
-
-
-	DoStopSvc();
+	SERVICE_STATUS_PROCESS ssp;
+	DWORD dwBytesNeeded;
 
 	// Get a handle to the SCM database. 
 
@@ -371,13 +368,26 @@ VOID __stdcall DoDeleteSvc()
 	schService = OpenService(
 		schSCManager,       // SCM database 
 		szSvcName,          // name of service 
-		DELETE);            // need delete access 
+		DELETE |
+		SERVICE_STOP |
+		SERVICE_QUERY_STATUS);    // need delete access 
 
 	if (schService == NULL)
 	{
 		printf("OpenService failed (%d)\n", GetLastError());
 		CloseServiceHandle(schSCManager);
 		return;
+	}
+
+	if (!QueryServiceStatusEx(schService, SC_STATUS_PROCESS_INFO, (LPBYTE)&ssp,
+		sizeof(SERVICE_STATUS_PROCESS), &dwBytesNeeded))
+	{
+		printf("QueryServiceStatusEx failed (%d)\n", GetLastError());
+		return;
+	}
+	if (ssp.dwCurrentState != SERVICE_STOPPED)
+	{
+		DoStopSvc();
 	}
 
 	// Delete the service.
