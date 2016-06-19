@@ -3,7 +3,6 @@
 
 #include "stdafx.h"
 #include <windows.h>
-
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -101,10 +100,18 @@ void PrintPEHeader(IMAGE_NT_HEADERS* pHeader) {
 void PrintOptionalHeader(IMAGE_NT_HEADERS* pHeader) {
 	HEADER_FOR_PRINT("PE Optional Header Info");
 	IMAGE_OPTIONAL_HEADER* pOptHeader = &(pHeader->OptionalHeader);
+	std::cout << "Magic: " << GetReadableMagicOfOptionHeader(pOptHeader->Magic) << std::endl;
+	std::cout << "RVA address of entry point: " << pOptHeader->AddressOfEntryPoint << std::endl;
+	std::cout << "RVA base of code: " << pOptHeader->BaseOfCode << std::endl;
+#ifdef _WIN64
+	std::cout << "RVA base of data: " << 0 << std::endl;
+#else
+	std::cout << "RVA base of data: " << GetReadableMagicOfOptionHeader(pOptHeader->BaseOfData) << std::endl;
+#endif
+	std::cout << "ImageBase: " << pOptHeader->ImageBase << std::endl;
 	std::cout << "Subsystem Version: " << pOptHeader->MinorSubsystemVersion << "-" \
 									  << pOptHeader->MajorSubsystemVersion << std::endl;
 	std::cout << "Subsystem: " << GetReadableSubsystemOfOptionHeader(pOptHeader->Subsystem) << std::endl;
-	std::cout << "Magic: " << GetReadableMagicOfOptionHeader(pOptHeader->Magic) << std::endl;
 	IMAGE_FIRST_SECTION(pHeader);
 }
 
@@ -129,18 +136,23 @@ void PrintExportSymbols(LPBYTE pBase) {
 	LPDWORD pAddrTable = (LPDWORD)GetFilePointer(pBase, pExportDir->AddressOfFunctions);
 	LPDWORD pNameTable = (LPDWORD)GetFilePointer(pBase, pExportDir->AddressOfNames);
 	LPWORD pOrdTable = (LPWORD)GetFilePointer(pBase, pExportDir->AddressOfNameOrdinals);
-	printf("%s\n", (char*)GetFilePointer(pBase, pNameTable[0]));
-	/*std::cout << std::setw(75) << "Name" << std::setw(10) << "Index" << std::setw(25) << "RVA\n";
-	for (UINT i = 0; i < pExportDir->NumberOfNames; i++) {
-		std::cout << std::setw(75) << (char*)GetFilePointer(pBase, pNameTable[i]) << std::setw(10) << i << std::setw(25) << std::hex;
-		DWORD dwRVA = pAddrTable[pOrdTable[i]];
-		if (dwRVA >= dwExportDirStart && dwRVA < dwExportDirEnd) {
-			std::cout << (char*)GetFilePointer(pBase, dwRVA) << std::dec << "\n";
+
+	for (UINT i = 0; i < pExportDir->NumberOfFunctions; i++) {
+		DWORD dwRVA = *pAddrTable++;
+		if (dwRVA == 0)
+			continue;
+		std::cout << std::dec << i + pExportDir->Base << "\n";
+		if (dwRVA >= dwExportDirStart && dwRVA < dwExportDirEnd)
+			std::cout << "RVA of translation: " << (char*)GetFilePointer(pBase, dwRVA) << std::endl;
+		else
+			std::cout << "Usual RVA: " << std::hex << dwRVA << std::endl;;
+		for (UINT j = 0; j < pExportDir->NumberOfNames; j++) {
+			if (pOrdTable[j] == i) {
+				std::cout << (char*)GetFilePointer(pBase, pNameTable[j]) << std::endl;;
+				break;
+			}
 		}
-		else {
-			std::cout << dwRVA << std::dec << "\n";
-		}
-	}*/
+	}
 }
 
 void PrintImportSymbols(LPBYTE pBase) {
@@ -195,8 +207,10 @@ int _tmain(int argc, _TCHAR* argv[])
 {
 	LPCTSTR path;
 	if (argc != 2) {
-		//path = L"C:\\Windows\\System32\\shell32.dll";
-		path = L"C:\\Windows\\splwow64.exe";
+		path = L"C:\\Windows\\System32\\shell32.dll";
+		//path = L"C:\\Windows\\splwow64.exe";
+		//path = L"f:\\ParallelsHW\\systemProgramming\\peFileInfo\\open.exe";
+		//path = L"f:\\ParallelsHW\\systemProgramming\\peFileInfo\\R.dll";
 	}
 	else {
 		path = argv[1];
