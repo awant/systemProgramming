@@ -207,8 +207,9 @@ int _tmain(int argc, _TCHAR* argv[])
 {
 	LPCTSTR path;
 	if (argc != 2) {
-		path = L"C:\\Windows\\System32\\shell32.dll";
+		//path = L"C:\\Windows\\System32\\shell32.dll";
 		//path = L"C:\\Windows\\splwow64.exe";
+		path = L"f:\\ParallelsHW\\systemProgramming\\injection\\SimpleProgram\\x64\\Debug\\SimpleProgram.exe";
 		//path = L"f:\\ParallelsHW\\systemProgramming\\peFileInfo\\open.exe";
 		//path = L"f:\\ParallelsHW\\systemProgramming\\peFileInfo\\R.dll";
 	}
